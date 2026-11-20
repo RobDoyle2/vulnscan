@@ -90,9 +90,23 @@ def _save_file(d: dict) -> None:
         pass
 
 
+def _from_env(name: str) -> str:
+    """NAME, or NAME_FILE pointing at a file (container / Docker secrets)."""
+    if os.environ.get(name):
+        return os.environ[name].strip()
+    path = os.environ.get(name + "_FILE")
+    if path:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                return fh.read().strip()
+        except OSError:
+            return ""
+    return ""
+
+
 def get(name: str) -> str:
     # An environment variable (as in the original scripts) wins if set.
-    env = os.environ.get(name, "")
+    env = _from_env(name)
     if env:
         return env
     kr = _keyring()
@@ -137,4 +151,4 @@ def masked(name: str) -> dict:
     if not v:
         return {"set": False, "hint": ""}
     return {"set": True, "hint": ("•" * 8) + v[-4:] if len(v) > 8 else "•" * 8,
-            "from_env": bool(os.environ.get(name))}
+            "from_env": bool(_from_env(name))}

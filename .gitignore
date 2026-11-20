@@ -5,3 +5,8 @@ _site/
 __pycache__/
 .pytest_cache/
 *.log
+deploy/vulnscan.env
+deploy/signin.env
+deploy/tls/
+deploy/secrets/
+deploy/certs/

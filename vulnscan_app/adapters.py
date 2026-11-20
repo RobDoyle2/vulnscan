@@ -6,6 +6,7 @@ can be added from the Settings screen with a field mapping and no code.
 """
 import html
 import json
+import os
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -91,7 +92,32 @@ class Ctx:
 def new_session():
     s = requests.Session()
     s.headers["User-Agent"] = USER_AGENT
+    bundle = ca_bundle()
+    if bundle:
+        s.verify = bundle
+    # HTTPS_PROXY / NO_PROXY environment variables are honoured automatically.
     return s
+
+
+_bundle_path = None
+
+
+def ca_bundle():
+    """If VULNSCAN_EXTRA_CA_FILE names the company's root certificate(s) (PEM),
+    trust them as well as the normal public ones. Needed behind a proxy that
+    inspects encrypted traffic."""
+    global _bundle_path
+    extra = os.environ.get("VULNSCAN_EXTRA_CA_FILE")
+    if not extra:
+        return None
+    if _bundle_path is None:
+        import certifi
+        from .paths import data_dir
+        path = data_dir() / "ca-bundle.pem"
+        with open(certifi.where(), encoding="utf-8") as a, open(extra, encoding="utf-8") as b:
+            path.write_text(a.read() + "\n" + b.read(), encoding="utf-8")
+        _bundle_path = str(path)
+    return _bundle_path
 
 
 def network_error(url, e):

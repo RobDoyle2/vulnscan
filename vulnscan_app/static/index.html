@@ -15,6 +15,7 @@
     <div>
       <h1 id="appTitle">VulnScan</h1>
       <p id="tagline" class="tagline">Today's security vulnerabilities, ranked by what matters most.</p>
+      <p id="who" class="muted small" hidden></p>
     </div>
   </div>
   <nav class="tabs" role="tablist">
@@ -31,6 +32,7 @@
     <div class="scan-side">
       <p id="summary" class="summary">No scan yet. Press Scan to collect today's vulnerabilities.</p>
       <p id="lastScan" class="muted small"></p>
+      <p id="autoScan" class="muted small" hidden></p>
     </div>
   </div>
   <ul id="progress" class="progress" hidden></ul>
@@ -38,7 +40,7 @@
   <div class="filters" role="search">
     <input id="fQ" type="search" placeholder="Search products or words in the summary" aria-label="Search">
     <label>Time window
-      <select id="fDays"><option value="1">Last 24 hours</option><option value="2">Last 48 hours</option><option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="30">Last 30 days</option></select>
+      <select id="fDays"><option value="1">Last 24 hours</option><option value="2">Last 48 hours</option><option value="7" selected>Last 7 days</option><option value="14">Last 14 days</option><option value="30">Last 30 days</option></select>
     </label>
     <label>Severity
       <select id="fSev"><option value="critical">Critical only</option><option value="high" selected>Critical and high</option><option value="all">Everything</option></select>
@@ -90,7 +92,7 @@
 
   <div class="card" id="keysCard">
     <h3>API keys</h3>
-    <p class="muted small">Stored securely on this computer (encrypted with your Windows account) and never shown in full. Both are optional but make scans faster.</p>
+    <p id="keysNote" class="muted small">Stored securely on this computer (encrypted with your Windows account) and never shown in full. Both are optional but make scans faster.</p>
     <div class="key-row" data-name="NVD_API_KEY">
       <label>NVD API key <span class="hint"></span></label>
       <div class="inline"><input type="password" autocomplete="off" placeholder="Paste key"><button class="btn save-key">Save</button><button class="link-btn clear-key">Remove</button></div>

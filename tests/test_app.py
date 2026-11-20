@@ -475,3 +475,80 @@ def test_24_and_48_hour_windows(con):
     assert len(ids(7)) == 4
     assert store.summary(con, 1)["text"].endswith("in the last 24 hours (0 known exploited).")
     assert exporter.describe_filters({"days": 2}).startswith("last 48 hours")
+
+
+# ------------------------------------------------------------- server mode --
+@pytest.fixture(scope="module")
+def team_srv():
+    os.environ["VULNSCAN_ADMINS"] = "boss@example.com"
+    os.environ["VULNSCAN_ADMIN_GROUPS"] = "11111111-aaaa-bbbb-cccc-222222222222"
+    port = server.find_port(18900)
+    app, httpd = server.serve_server("127.0.0.1", port)
+    yield app
+    httpd.shutdown()
+    for k in ("VULNSCAN_ADMINS", "VULNSCAN_ADMIN_GROUPS"):
+        os.environ.pop(k, None)
+
+
+def as_user(email=None, groups=None):
+    h = {}
+    if email:
+        h["X-Forwarded-Email"] = email
+    if groups:
+        h["X-Forwarded-Groups"] = groups
+    return h
+
+
+def test_server_requires_sign_in(team_srv):
+    assert req(team_srv, "/healthz")[0] == 200  # health check needs no sign-in
+    assert req(team_srv, "/")[0] == 401
+    assert req(team_srv, "/api/results")[0] == 401
+    assert req(team_srv, "/api/scan", "POST", {})[0] == 401
+
+
+def test_server_viewer_can_read_not_change(team_srv):
+    viewer = as_user("someone@example.com", "some-other-group")
+    code, body, _ = req(team_srv, "/api/info", headers=viewer)
+    info = json.loads(body)
+    assert code == 200 and info["mode"] == "server" and info["admin"] is False and info["user"] == "someone@example.com"
+    assert req(team_srv, "/api/results?days=7", headers=viewer)[0] == 200
+    assert req(team_srv, "/api/export.xlsx?days=7", headers=viewer)[0] == 200
+    for path in ("/api/scan", "/api/settings/reset", "/api/sources/clear"):
+        assert req(team_srv, path, "POST", {}, headers=viewer)[0] == 403
+    assert req(team_srv, "/api/settings", "PUT", {"tagline": "x"}, headers=viewer)[0] == 403
+
+
+def test_server_admins_by_email_or_group(team_srv):
+    for who in (as_user("Boss@Example.com"), as_user("x@example.com", "abc, 11111111-AAAA-bbbb-cccc-222222222222")):
+        info = json.loads(req(team_srv, "/api/info", headers=who)[1])
+        assert info["admin"] is True
+        code, body, _ = req(team_srv, "/api/settings", "PUT", {"tagline": "Team view"}, headers=who)
+        assert code == 200 and json.loads(body)["tagline"] == "Team view"
+    settings.reset()
+
+
+def test_server_blocks_desktop_only_actions(team_srv):
+    admin = as_user("boss@example.com")
+    for path in ("/api/secrets", "/api/quit", "/api/phone/new-key"):
+        assert req(team_srv, path, "POST", {"name": "NVD_API_KEY", "value": "x"}, headers=admin)[0] == 403
+    assert req(team_srv, "/api/phone", headers=admin)[0] == 403
+    assert req(team_srv, "/api/scan", "POST", {}, headers=dict(admin, **{"X-VulnScan": ""}))[0] == 403  # cross-site
+
+
+def test_secret_from_file(tmp_path, monkeypatch):
+    f = tmp_path / "nvd.txt"
+    f.write_text("file-secret-abcd\n")
+    monkeypatch.setenv("NVD_API_KEY_FILE", str(f))
+    assert secrets_store.get("NVD_API_KEY") == "file-secret-abcd"
+    assert secrets_store.masked("NVD_API_KEY")["from_env"] is True
+
+
+def test_extra_ca_bundle(tmp_path, monkeypatch):
+    ca = tmp_path / "company.pem"
+    ca.write_text("-----BEGIN CERTIFICATE-----\nCOMPANYROOT\n-----END CERTIFICATE-----\n")
+    monkeypatch.setenv("VULNSCAN_EXTRA_CA_FILE", str(ca))
+    monkeypatch.setattr(adapters, "_bundle_path", None)
+    s = adapters.new_session()
+    text = Path(s.verify).read_text()
+    assert "COMPANYROOT" in text and text.count("BEGIN CERTIFICATE") > 50  # public roots kept too
+    monkeypatch.setattr(adapters, "_bundle_path", None)

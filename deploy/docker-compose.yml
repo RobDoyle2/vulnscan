@@ -1,0 +1,60 @@
+# VulnScan on an internal Linux server, with Entra ID sign-in.
+#
+#   browser --HTTPS--> signin (oauth2-proxy, Entra ID) --> vulnscan (not published)
+#
+# 1. Copy vulnscan.env.example to vulnscan.env and signin.env.example to signin.env, fill them in.
+# 2. Put the server's TLS certificate and key in ./tls/ (server.crt, server.key).
+# 3. Optional: put the NVD API key in ./secrets/nvd_api_key (one line).
+# 4. docker compose up -d --build
+# See docs/SERVER.md for the Entra ID app registration and every setting.
+
+services:
+  vulnscan:
+    build: ..
+    image: vulnscan:1.0.0
+    restart: unless-stopped
+    env_file: vulnscan.env
+    environment:
+      VULNSCAN_AUTH: header            # trust only the sign-in gateway's headers
+      NVD_API_KEY_FILE: /run/secrets/nvd_api_key
+    secrets: [nvd_api_key]
+    volumes:
+      - vulnscan-data:/data
+      # Company root certificate, if the proxy inspects HTTPS (see docs/SERVER.md):
+      # - ./certs/company-root.pem:/certs/company-root.pem:ro
+    # No "ports:" - VulnScan is reachable only through the sign-in gateway.
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [vulnscan]
+
+  signin:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    restart: unless-stopped
+    env_file: signin.env
+    environment:
+      OAUTH2_PROXY_UPSTREAMS: http://vulnscan:8080
+      OAUTH2_PROXY_HTTPS_ADDRESS: 0.0.0.0:4443
+      OAUTH2_PROXY_HTTP_ADDRESS: ""
+      OAUTH2_PROXY_TLS_CERT_FILE: /tls/server.crt
+      OAUTH2_PROXY_TLS_KEY_FILE: /tls/server.key
+    volumes:
+      - ./tls:/tls:ro
+    ports:
+      - "443:4443"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [vulnscan]
+    networks: [vulnscan]
+
+secrets:
+  nvd_api_key:
+    file: ./secrets/nvd_api_key
+
+volumes:
+  vulnscan-data:
+
+networks:
+  vulnscan:

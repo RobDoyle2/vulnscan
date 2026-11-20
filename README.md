@@ -36,6 +36,14 @@ A read-only web version is published to GitHub Pages at **https://robdoyle2.gith
 
 One-off setup: in this repository go to **Settings → Pages → Build and deployment → Source: GitHub Actions**. Optionally add an `NVD_API_KEY` secret (Settings → Secrets and variables → Actions) so the NVD part of each refresh runs faster.
 
+## Team server inside a company (Linux, Entra ID sign-in)
+
+VulnScan also runs as a container on an internal Linux server. Staff open an internal web address and sign in with their Microsoft Entra ID account. Viewers can see and export results; admins (an Entra group) can also start scans and change sources. Scans run automatically every 6 hours, and the only traffic leaving the network is the requests to the public feeds.
+
+* **[docs/SERVER.md](docs/SERVER.md):** installation (Entra app registration, settings, corporate proxy and certificates, day-to-day tasks).
+* **[docs/SECURITY.md](docs/SECURITY.md):** data flow, outbound addresses, sign-in and roles, secrets and container hardening, for the security review.
+* **Deployment files:** `Dockerfile` and `deploy/docker-compose.yml`, which runs VulnScan behind oauth2-proxy.
+
 ## Sources
 
 | Source | Default | How it is read |

@@ -6,6 +6,10 @@ a short delay, unless phone access is switched on.
 
 Options:  --no-window   don't open a window (e.g. for phone-only use)
           --selftest F  run every enabled source once, write results to F, exit
+          --server      server mode for the container: listen on the network
+                        (VULNSCAN_BIND / VULNSCAN_PORT, default 0.0.0.0:8080),
+                        scan every VULNSCAN_SCAN_EVERY_HOURS (default 6), sign-in
+                        from the gateway in front (see docs/SERVER.md)
 """
 import argparse
 import json
@@ -19,6 +23,35 @@ import webbrowser
 from pathlib import Path
 
 IDLE_QUIT_SECONDS = 180
+
+
+def use_windows_certificates():
+    """Trust the certificates Windows trusts (including a company root
+    certificate pushed by IT), so scans work behind an inspecting proxy."""
+    if sys.platform != "win32":
+        return
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+    except Exception:  # noqa: BLE001 - fall back to the bundled public list
+        pass
+
+
+def run_server():
+    import logging
+    import signal
+    import threading
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout,
+                        format="%(asctime)s %(levelname)s %(message)s")
+    from vulnscan_app import server
+    host = os.environ.get("VULNSCAN_BIND", "0.0.0.0")
+    port = int(os.environ.get("VULNSCAN_PORT") or 8080)
+    _, httpd = server.serve_server(host, port)
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *a: stop.set())
+    signal.signal(signal.SIGINT, lambda *a: stop.set())
+    stop.wait()
+    httpd.shutdown()
 
 
 def message_box(text, title="VulnScan"):
@@ -84,7 +117,13 @@ def main():
     ap.add_argument("--no-window", action="store_true")
     ap.add_argument("--selftest", metavar="FILE")
     ap.add_argument("--port", type=int, default=0)
+    ap.add_argument("--server", action="store_true")
     args = ap.parse_args()
+    use_windows_certificates()
+
+    if args.server:
+        run_server()
+        return
 
     if args.selftest:
         selftest(args.selftest)

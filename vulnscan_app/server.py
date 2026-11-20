@@ -1,10 +1,17 @@
-"""Small local web server for the app's screens.
+"""Web server for the app's screens.
 
-It listens on 127.0.0.1 only, so nothing on the network can reach it. If phone
-access is switched on in Settings, a second listener opens on the home network
-and every request from it must carry a private access key (shown as a QR code).
+Desktop mode: listens on 127.0.0.1 only, so nothing on the network can reach it.
+If phone access is switched on in Settings, a second listener opens on the home
+network and every request from it must carry a private access key (QR code).
+
+Server mode (run.py --server, used by the container): serves a team behind a
+sign-in gateway (oauth2-proxy with Entra ID). The gateway signs people in and
+passes their e-mail and groups in X-Forwarded-* headers; requests without them
+are refused. Admins (VULNSCAN_ADMINS / VULNSCAN_ADMIN_GROUPS) can scan and change
+sources; everyone else can view and export. Scans run on a schedule.
 """
 import json
+import logging
 import mimetypes
 import os
 import secrets as pysecrets
@@ -22,11 +29,28 @@ from .scanner import Scanner
 
 DEFAULT_PORT = 8765
 LAN_PORT_OFFSET = 1
+log = logging.getLogger("vulnscan")
+
+# Admin-only actions in server mode; viewers can read and export.
+ADMIN_PATHS = {"/api/scan", "/api/scan/stop", "/api/settings", "/api/settings/reset",
+               "/api/sources/test", "/api/sources/clear"}
+# Desktop-only actions, never available in server mode.
+DESKTOP_ONLY_PATHS = {"/api/secrets", "/api/phone/new-key", "/api/quit"}
+USER_HEADERS = ("X-Forwarded-Email", "X-Auth-Request-Email", "X-Forwarded-Preferred-Username",
+                "X-Auth-Request-Preferred-Username", "X-Forwarded-User", "X-Auth-Request-User")
+GROUP_HEADERS = ("X-Forwarded-Groups", "X-Auth-Request-Groups")
+
+
+def _csv_env(name):
+    return {x.strip().lower() for x in os.environ.get(name, "").split(",") if x.strip()}
 
 
 class App:
-    def __init__(self, port=DEFAULT_PORT):
+    def __init__(self, port=DEFAULT_PORT, server_mode=False):
         self.port = port
+        self.server_mode = server_mode
+        self.scan_every_hours = float(os.environ.get("VULNSCAN_SCAN_EVERY_HOURS") or 6)
+        self.next_scan = None
         self.scanner = Scanner(store.connect())
         self.last_ping = None
         self.quit_event = threading.Event()
@@ -86,7 +110,22 @@ class App:
         return {"enabled": cfg["phone_access"], "running": running, "url": url, "qr_svg": svg,
                 "ip": ip, "error": getattr(self, "lan_error", "")}
 
+    # ------------------------------------------------------------ schedule ----
+    def start_scheduler(self):
+        """Server mode: scan shortly after start, then every N hours."""
+        def loop():
+            self.next_scan = time.time() + 15
+            while True:
+                if time.time() >= self.next_scan:
+                    if self.scanner.start():
+                        log.info("scheduled scan started")
+                    self.next_scan = time.time() + self.scan_every_hours * 3600
+                time.sleep(10)
+        threading.Thread(target=loop, daemon=True, name="scheduler").start()
+
     def apply_phone_access(self):
+        if self.server_mode:
+            return
         with self.lan_lock:
             want = settings.load()["phone_access"]
             self.lan_error = ""
@@ -115,7 +154,7 @@ def _filters(qs):
     }
 
 
-def make_handler(app, lan=False):
+def make_handler(app, lan=False, server=False):
     class Handler(BaseHTTPRequestHandler):
         server_version = "VulnScan/" + __version__
         protocol_version = "HTTP/1.1"
@@ -152,7 +191,25 @@ def make_handler(app, lan=False):
             raw = self.rfile.read(n) if n else b"{}"
             return json.loads(raw.decode("utf-8") or "{}")
 
+        def identity(self):
+            """Who is asking. Desktop: the local user (admin). Server: from the
+            sign-in gateway's headers; None if they are missing."""
+            if not server:
+                return {"user": None, "admin": True}
+            if os.environ.get("VULNSCAN_AUTH", "header").lower() == "none":
+                return {"user": "anonymous (sign-in switched off)", "admin": True}
+            user = next((self.headers.get(h) for h in USER_HEADERS if self.headers.get(h)), "")
+            if not user:
+                return None
+            groups = set()
+            for h in GROUP_HEADERS:
+                groups |= {g.strip().lower() for g in (self.headers.get(h) or "").split(",") if g.strip()}
+            admin = user.strip().lower() in _csv_env("VULNSCAN_ADMINS") or bool(groups & _csv_env("VULNSCAN_ADMIN_GROUPS"))
+            return {"user": user.strip()[:200], "admin": admin}
+
         def allowed(self):
+            if server:
+                return self.identity() is not None
             host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
             if not lan:
                 # Blocks DNS-rebinding: only accept our own loopback names.
@@ -175,6 +232,13 @@ def make_handler(app, lan=False):
             self.do_GET()
 
         def do_GET(self):
+            if server and urlparse(self.path).path == "/healthz":
+                st = app.scanner.state
+                return self.send(200, {"ok": True, "version": __version__, "scan_running": st["running"],
+                                       "last_scan_finished": st["finished"]})
+            if server and not self.allowed():
+                return self.send(401, "Sign-in required. Open VulnScan through the company sign-in address.",
+                                 "text/plain; charset=utf-8")
             if not self.allowed():
                 return self.send(403, "Access denied. On a phone, open the link from the QR code in Settings.",
                                  "text/plain; charset=utf-8")
@@ -196,7 +260,7 @@ def make_handler(app, lan=False):
                 if path == "/api/settings":
                     return self.send(200, self.settings_view())
                 if path == "/api/phone":
-                    if lan:
+                    if lan or server:
                         return self.send(403, {"error": "not available from a phone"})
                     return self.send(200, app.phone_info())
                 if path in ("/api/export.xlsx", "/api/export.pdf"):
@@ -213,8 +277,16 @@ def make_handler(app, lan=False):
 
         def do_write(self):
             if not self.allowed() or not self.write_ok():
-                return self.send(403, {"error": "forbidden"})
+                return self.send(401 if server and not self.allowed() else 403, {"error": "forbidden"})
             path = urlparse(self.path).path
+            if server:
+                who = self.identity()
+                if path in DESKTOP_ONLY_PATHS:
+                    return self.send(403, {"error": "Not available on the server. Keys are set by the server administrator."})
+                if path in ADMIN_PATHS and not who["admin"]:
+                    return self.send(403, {"error": "Only VulnScan administrators can do this."})
+                if path in ADMIN_PATHS and path != "/api/sources/test":
+                    log.info("%s by %s", path, who["user"])
             try:
                 data = self.body_json()
             except (ValueError, json.JSONDecodeError) as e:
@@ -270,7 +342,11 @@ def make_handler(app, lan=False):
             total, by_source = store.totals(con)
             return {
                 "title": cfg["app_title"], "tagline": cfg["tagline"], "version": __version__,
-                "phone": lan,
+                "phone": lan, "mode": "server" if server else "desktop",
+                "user": (self.identity() or {}).get("user"), "admin": (self.identity() or {}).get("admin", False),
+                "scan_every_hours": app.scan_every_hours if server else None,
+                "next_scan": datetime.fromtimestamp(app.next_scan).isoformat(timespec="minutes")
+                if server and app.next_scan else None,
                 "sources": [{"id": s["id"], "name": s["name"], "enabled": s["enabled"],
                              "count": by_source.get(s["id"], 0)} for s in cfg["sources"]],
                 "other_sources": sorted(set(by_source) - {s["id"] for s in cfg["sources"]}),
@@ -298,7 +374,7 @@ def make_handler(app, lan=False):
             for k in ("app_title", "tagline", "first_scan_days", "sources"):
                 if k in data:
                     cur[k] = data[k]
-            if "phone_access" in data and not lan:
+            if "phone_access" in data and not lan and not server:
                 cur["phone_access"] = bool(data["phone_access"])
             settings.save(cur)
             app.apply_phone_access()
@@ -354,4 +430,21 @@ def serve(port=None):
     httpd.daemon_threads = True
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     app.apply_phone_access()
+    return app, httpd
+
+
+def serve_server(host="0.0.0.0", port=8080):
+    """Server mode (container): listen on the network, scan on a schedule."""
+    app = App(port, server_mode=True)
+    httpd = ThreadingHTTPServer((host, port), make_handler(app, server=True))
+    httpd.daemon_threads = True
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    app.start_scheduler()
+    auth = os.environ.get("VULNSCAN_AUTH", "header").lower()
+    log.info("VulnScan %s server listening on %s:%s (sign-in: %s, scan every %sh)",
+             __version__, host, port, "from gateway headers" if auth != "none" else "SWITCHED OFF", app.scan_every_hours)
+    if auth == "none":
+        log.warning("VULNSCAN_AUTH=none: anyone who can reach this port is an admin. Use for testing only.")
+    if not (_csv_env("VULNSCAN_ADMINS") or _csv_env("VULNSCAN_ADMIN_GROUPS")):
+        log.warning("No VULNSCAN_ADMINS or VULNSCAN_ADMIN_GROUPS set: nobody can change sources or start scans by hand.")
     return app, httpd

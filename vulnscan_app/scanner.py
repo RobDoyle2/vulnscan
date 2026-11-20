@@ -1,11 +1,14 @@
 """Runs every enabled source, one after another. A failed source never stops the
 others; its error text is kept so it can be shown and copied."""
+import logging
 import threading
 import time
 import traceback
 from datetime import datetime
 
 from . import adapters, settings, store
+
+logger = logging.getLogger("vulnscan")
 
 
 class Scanner:
@@ -58,12 +61,14 @@ class Scanner:
                     if result != adapters.KEEP_LAST:
                         store.set_last(self.con, src["id"], result if isinstance(result, str) else None)
                     self.con.commit()
+                    logger.info("ok    %s: %s records in %.0fs", src["name"], ctx.saved, time.time() - t0)
                     st.update(status="ok", saved=ctx.saved,
                               message=f"{ctx.saved:,} records in {time.time() - t0:.0f}s"
                                       + (f" - {st['message']}" if "next scan" in st["message"] else ""))
                 except Exception as e:  # noqa: BLE001 - any failure is reported, never fatal
                     self.con.commit()  # keep whatever was saved before the failure
                     err = str(e) if isinstance(e, adapters.AdapterError) else f"{e.__class__.__name__}: {e}"
+                    logger.warning("FAIL  %s: %s", src["name"], err[:600])
                     st.update(status="fail", saved=ctx.saved, error=err[:600], message="")
                     self.state["log"].append(f"{src['name']}: {traceback.format_exc(limit=3)}")
             try:

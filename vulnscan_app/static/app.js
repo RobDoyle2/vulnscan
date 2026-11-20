@@ -53,10 +53,22 @@
     sel.value = [...sel.options].some((o) => o.value === cur) ? cur : "";
     const runs = Object.values(info.last_runs || {}).sort();
     $("#lastScan").textContent = runs.length ? `Last scan: ${new Date(runs[runs.length - 1] + "Z").toLocaleString()}` : "";
-    $("#quitCard").hidden = isPhone;
+    const server = info.mode === "server";
+    $("#quitCard").hidden = isPhone || server;
     $("#keysCard").hidden = isPhone;
-    $("#phoneCard").hidden = isPhone;
+    $("#phoneCard").hidden = isPhone || server;
     $("#about").textContent = `Version ${info.version}. Public vulnerability data only; everything is stored on this computer.`;
+    if (server) {
+      $("#who").hidden = false;
+      $("#who").textContent = `Signed in as ${info.user || "unknown"}${info.admin ? " (administrator)" : ""}`;
+      $("#keysCard").classList.add("managed");
+      $("#keysNote").textContent = "On the server, keys are set by the administrator as container secrets (see docs/SERVER.md). Only the last 4 characters are shown.";
+      $("#tabSettings").hidden = !info.admin;
+      $("#scanBtn").hidden = !info.admin;
+      $("#autoScan").hidden = false;
+      $("#autoScan").textContent = `Scans run automatically every ${info.scan_every_hours} hours` +
+        (info.next_scan ? `. Next: ${new Date(info.next_scan).toLocaleString()}.` : ".");
+    }
   }
 
   // ---------------------------------------------------------------- filters --
@@ -219,13 +231,15 @@
     $("#sDays").value = String(cfg.first_scan_days);
     renderKeys();
     renderSources();
-    if (!isPhone) loadPhone();
+    if (!isPhone && info.mode !== "server") loadPhone();
   }
 
   function renderKeys() {
     $$(".key-row").forEach((row) => {
       const s = (cfg.secrets || {})[row.dataset.name] || {};
-      $(".hint", row).textContent = s.set ? `saved (${s.hint})${s.from_env ? " - from environment variable" : ""}` : "not set";
+      const managed = info && info.mode === "server";
+      $(".hint", row).textContent = s.set ? `saved (${s.hint})${s.from_env ? (managed ? " - set by the server administrator" : " - from environment variable") : ""}`
+        : (managed ? "not set - the server administrator sets this" : "not set");
       $(".clear-key", row).hidden = !s.set || s.from_env;
     });
   }
@@ -355,7 +369,7 @@
   (async () => {
     restoreFilters();
     try { await loadInfo(); } catch (e) { toast("Could not reach VulnScan. Is it still running?"); return; }
-    if (!isPhone) { beat(); setInterval(beat, 30000); }
+    if (!isPhone && info.mode !== "server") { beat(); setInterval(beat, 30000); }
     await loadResults();
     pollScan();
     show(location.hash === "#settings" ? "settings" : "main");

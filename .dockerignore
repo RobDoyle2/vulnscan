@@ -1,0 +1,15 @@
+.git
+.github
+build
+dist
+selftest
+_site
+tests
+tools
+web
+packaging
+deploy
+docs
+**/__pycache__
+*.bat
+*.md

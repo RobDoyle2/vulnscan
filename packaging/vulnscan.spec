@@ -10,7 +10,7 @@ a = Analysis(
     [str(ROOT / "run.py")],
     pathex=[str(ROOT)],
     datas=[(str(ROOT / "vulnscan_app" / "static"), "vulnscan_app/static")],
-    hiddenimports=["segno", "openpyxl", "reportlab.graphics.barcode.common",
+    hiddenimports=["segno", "openpyxl", "truststore", "reportlab.graphics.barcode.common",
                    "reportlab.graphics.barcode.code128", "reportlab.graphics.barcode.code93",
                    "reportlab.graphics.barcode.code39", "reportlab.graphics.barcode.usps",
                    "reportlab.graphics.barcode.usps4s", "reportlab.graphics.barcode.ecc200datamatrix"],
