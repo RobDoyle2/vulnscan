@@ -38,12 +38,10 @@ jobs:
           mkdir -p secrets && touch secrets/nvd_api_key
           docker compose config --quiet && echo "docker-compose.yml is valid"
       - name: Scan image for known vulnerabilities (report)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: vulnscan:test
-          format: table
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '0'
+        # Trivy's official container, newest version so the vulnerability
+        # database and rules are current. Reports only; it doesn't fail the run.
+        run: >
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest
+          image --severity CRITICAL,HIGH --ignore-unfixed --no-progress vulnscan:test
       - name: List of packages in the image
         run: docker run --rm --entrypoint cat vulnscan:test /app/installed-packages.txt
