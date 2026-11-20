@@ -17,5 +17,5 @@ if __name__ == "__main__":
                     "Affected product", "Summary", "Published", "Modified", "Link"])
         for r in rows:
             w.writerow([r["id"], r["source"], "YES" if r["exploited"] else "", r["severity"], r["score"],
-                        r["affected"][:120], r["summary"][:200], r["published"], r["modified"], r["url"]])
+                        r["affected"][:120], r["summary"][:200], r["published"][:10], r["modified"][:10], r["url"]])
     print(store.summary(con, DAYS)["text"], "Written to report.csv")

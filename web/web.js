@@ -38,14 +38,17 @@
   // known exploited items always count whatever their severity; worst first.
   function apply() {
     const f = filters();
-    const cutoff = new Date(Date.now() - Number(f.days) * 864e5).toISOString().slice(0, 10);
+    // Exact time where the source gives one; date-only values count from the start of that day.
+    const since = new Date(Date.now() - Number(f.days) * 864e5).toISOString();
+    const ts = since.slice(0, 19), day = since.slice(0, 10);
+    const inWindow = (v) => !!v && (v.length > 10 ? v.slice(0, 19) >= ts : v.slice(0, 10) >= day);
     const sevMax = f.severity === "critical" ? 0 : f.severity === "high" ? 1 : 99;
     const words = f.q.toLowerCase().split(/\s+/).filter(Boolean);
     const src = f.source === "" ? -1 : Number(f.source);
     const pool = f.severity === "all" && rest ? core.concat(rest) : core;
     const out = [];
     for (const r of pool) {
-      if (!((r[MOD] && r[MOD] >= cutoff) || (r[PUB] && r[PUB] >= cutoff))) continue;
+      if (!(inWindow(r[MOD]) || inWindow(r[PUB]))) continue;
       if (!(r[EXP] || r[SEV] <= sevMax)) continue;
       if (f.exploited_only && !r[EXP]) continue;
       if (src >= 0 && r[SRC] !== src) continue;
@@ -100,7 +103,7 @@
       <td class="num score">${r[SCORE] == null ? "" : Number(r[SCORE]).toFixed(1)}</td>
       <td class="aff">${esc(r[AFF])}</td>
       <td class="sum">${esc(r[SUM])}</td>
-      <td class="date">${esc(r[PUB] || r[MOD])}</td>
+      <td class="date">${esc(String(r[PUB] || r[MOD] || "").slice(0, 10))}</td>
       <td class="link">${/^https?:\/\//i.test(url) ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open</a>` : ""}</td></tr>`;
   }
 
@@ -109,7 +112,7 @@
     const lines = [["ID", "Source", "Exploited", "Severity", "Score", "Affected product", "Summary", "Published", "Modified", "Link"].map(q).join(",")];
     for (const r of current) {
       lines.push([r[ID], meta.source_names[r[SRC]], r[EXP] ? "YES" : "", meta.severities[r[SEV]], r[SCORE] ?? "",
-                  r[AFF], r[SUM], r[PUB], r[MOD], linkFor(r)].map(q).join(","));
+                  r[AFF], r[SUM], String(r[PUB] || "").slice(0, 10), String(r[MOD] || "").slice(0, 10), linkFor(r)].map(q).join(","));
     }
     const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");

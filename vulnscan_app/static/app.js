@@ -119,7 +119,7 @@
   function renderSummary(data) {
     if (!data.total) return;
     const s = data.summary;
-    $("#summary").textContent = `${fmt(s.total)} records collected. ${fmt(s.matching)} are exploited or critical/high in the last ${s.days} days (${fmt(s.exploited)} known exploited).`;
+    $("#summary").textContent = `${fmt(s.total)} records collected. ${fmt(s.matching)} are exploited or critical/high in the ${s.window} (${fmt(s.exploited)} known exploited).`;
   }
 
   function rowHtml(r) {
@@ -135,7 +135,7 @@
       <td class="num score">${r.score == null ? "" : esc(Number(r.score).toFixed(1))}</td>
       <td class="aff">${esc(r.affected)}</td>
       <td class="sum">${esc(r.summary)}</td>
-      <td class="date">${esc(r.published || r.modified)}</td>
+      <td class="date">${esc((r.published || r.modified).slice(0, 10))}</td>
       <td class="link">${link}</td></tr>`;
   }
 

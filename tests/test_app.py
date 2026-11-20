@@ -457,3 +457,21 @@ def test_network_error_is_short_and_plain(con, monkeypatch):
         adapters.pull_cisa_kev(ctx)
     assert "Could not reach www.cisa.gov: could not connect" in str(e.value) and len(str(e.value)) < 400
     assert len(sess.calls) == 2  # one retry, not a long wait
+
+
+def test_24_and_48_hour_windows(con):
+    now = datetime.now(timezone.utc)
+    rows = [("CVE-2026-1001", (now - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S")),
+            ("CVE-2026-1002", (now - timedelta(hours=30)).strftime("%Y-%m-%dT%H:%M:%S")),
+            ("CVE-2026-1003", now.strftime("%Y-%m-%d")),  # a source that gives only a date
+            ("CVE-2026-1004", (now - timedelta(hours=60)).strftime("%Y-%m-%dT%H:%M:%S"))]
+    for vid, when in rows:
+        r = store.blank("nvd", vid)
+        r.update(severity_label="HIGH", modified=when)
+        store.save(con, r)
+    ids = lambda d: sorted(x["id"] for x in store.query(con, {"days": d}))  # noqa: E731
+    assert ids(1) == ["CVE-2026-1001", "CVE-2026-1003"]
+    assert ids(2) == ["CVE-2026-1001", "CVE-2026-1002", "CVE-2026-1003"]
+    assert len(ids(7)) == 4
+    assert store.summary(con, 1)["text"].endswith("in the last 24 hours (0 known exploited).")
+    assert exporter.describe_filters({"days": 2}).startswith("last 48 hours")

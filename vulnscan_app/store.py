@@ -159,9 +159,14 @@ def build_where(filters):
     f = filters or {}
     where, params = [], []
     days = int(f.get("days") or 7)
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
-    where.append("(substr(modified,1,10) >= ? OR substr(published,1,10) >= ?)")
-    params += [cutoff, cutoff]
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    ts, day = since.strftime("%Y-%m-%dT%H:%M:%S"), since.strftime("%Y-%m-%d")
+    # Exact time where the source gives one (so "last 24 hours" means that);
+    # sources that give only a date count from the start of that day.
+    in_window = ("(CASE WHEN length({c}) > 10 THEN substr({c},1,19) >= ? "
+                 "ELSE {c} != '' AND substr({c},1,10) >= ? END)")
+    where.append("(" + in_window.format(c="modified") + " OR " + in_window.format(c="published") + ")")
+    params += [ts, day, ts, day]
     sev = SEVERITY_SETS.get(f.get("severity") or "high")
     if sev:
         # As in report.py: known exploited items always count, whatever their score.
@@ -240,7 +245,7 @@ def query(con, filters, limit=None, offset=0):
             "score": r[4], "affected": affected_text(r[5]),
             "summary": (title + " - " + summary if title and summary and not summary.startswith(title)
                         else title or summary)[:400],
-            "published": (r[8] or "")[:10], "modified": (r[9] or "")[:10],
+            "published": (r[8] or "")[:19], "modified": (r[9] or "")[:19],
             "url": r[10] or "", "aliases": r[11] or "",
         })
     return rows
@@ -261,6 +266,11 @@ def summary(con, days=7):
     """The report.py one-liner for a time window."""
     total, _ = totals(con)
     n, exploited = count(con, {"days": days, "severity": "high"})
-    return {"total": total, "matching": n, "exploited": exploited, "days": days,
-            "text": f"{total:,} records in database, {n:,} exploited or critical/high in the last "
-                    f"{days} days ({exploited:,} known exploited)."}
+    return {"total": total, "matching": n, "exploited": exploited, "days": days, "window": window_text(days),
+            "text": f"{total:,} records in database, {n:,} exploited or critical/high in the "
+                    f"{window_text(days)} ({exploited:,} known exploited)."}
+
+
+def window_text(days):
+    days = int(days or 7)
+    return f"last {days * 24} hours" if days <= 2 else f"last {days} days"

@@ -11,7 +11,8 @@ COLUMNS = [("ID", "id", 20), ("Source", "source", 11), ("Exploited", "exploited"
 def describe_filters(f):
     sev = {"critical": "critical only", "high": "critical and high", "all": "all severities"}.get(
         f.get("severity") or "high", "critical and high")
-    parts = [f"last {int(f.get('days') or 7)} days", sev]
+    from .store import window_text
+    parts = [window_text(f.get("days")), sev]
     if f.get("exploited_only"):
         parts.append("known exploited only")
     if f.get("source"):
@@ -25,6 +26,8 @@ def _cell(row, key):
     v = row.get(key)
     if key == "exploited":
         return "YES" if v else ""
+    if key in ("published", "modified"):
+        return (v or "")[:10]
     return "" if v is None else v
 
 
