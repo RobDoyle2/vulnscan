@@ -1,8 +1,12 @@
-# syntax=docker/dockerfile:1
 # VulnScan server image. Build:  docker build -t vulnscan:1.0.0 .
 # Runs as a non-root user, keeps all data in /data, works with a read-only
 # root filesystem. Sign-in is handled by the gateway in deploy/docker-compose.yml.
-FROM python:3.12.8-slim-bookworm
+FROM python:3.12.16-slim-trixie
+
+# Apply the latest Debian security updates on every build.
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

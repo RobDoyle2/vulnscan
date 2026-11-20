@@ -65,7 +65,7 @@ Nothing secret is in the image or the repository. The web screens show at most t
 
 ## Container hardening
 
-* **Base image and libraries:** official `python:3.12-slim` image. Every Python package is pinned to an exact version in `requirements.txt`; the full list is in the image at `/app/installed-packages.txt`.
+* **Base image and libraries:** official `python:3.12-slim` image on Debian 13, with the latest Debian security updates applied at every build. Every Python package is pinned to an exact version in `requirements.txt`; the full list is in the image at `/app/installed-packages.txt`.
 * **Runs as a non-root user** (UID 10001) with a **read-only root filesystem**. It can write only to `/data` and a temporary `/tmp`.
 * **No extra privileges:** all Linux capabilities are dropped and `no-new-privileges` is set. No shell access is needed.
 * **Web security headers** are sent on every page: Content-Security-Policy (no third-party content), X-Frame-Options DENY, nosniff, no-referrer.
@@ -73,7 +73,7 @@ Nothing secret is in the image or the repository. The web screens show at most t
   * unit tests;
   * a sign-in and role test through the real gateway;
   * deployment file validation;
-  * a vulnerability scan of the image (Trivy).
+  * a vulnerability scan of the image (Trivy), also run every week. Rebuild the image (`docker compose up -d --build`) to pick up fixes.
 
 ## Handling of downloaded data
 

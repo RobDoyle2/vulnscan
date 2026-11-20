@@ -8,6 +8,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '41 5 * * 1'   # weekly, so newly published problems in the image are reported
   workflow_dispatch:
 
 permissions:
@@ -27,7 +29,7 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-build.txt
           python -m pytest tests -q
       - name: Build image
-        run: docker build -t vulnscan:test .
+        run: docker build --pull -t vulnscan:test .
       - name: Sign-in, roles and hardening check
         run: tools/server_smoke.sh vulnscan:test
       - name: Validate deployment files
