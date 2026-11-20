@@ -1,0 +1,7 @@
+build/
+dist/
+selftest/
+_site/
+__pycache__/
+.pytest_cache/
+*.log

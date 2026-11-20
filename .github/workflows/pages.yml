@@ -1,0 +1,55 @@
+name: Publish phone page
+
+# Collects every public source and publishes the phone-friendly page to
+# GitHub Pages (https://robdoyle2.github.io/vulnscan/) every 6 hours.
+# One-off setup: Settings -> Pages -> Source: "GitHub Actions".
+# Optional: Settings -> Secrets and variables -> Actions -> NVD_API_KEY (faster NVD).
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 */6 * * *'   # every 6 hours (UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -r requirements.txt -r requirements-build.txt
+      - name: Unit tests
+        run: python -m pytest tests -q
+      - name: Collect sources and build the page
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: python tools/build_web.py _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
